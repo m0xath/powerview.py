@@ -189,6 +189,23 @@ class SweepTests(unittest.TestCase):
         )])
         self.assertEqual(len(found), 1)
 
+    def test_delete_rights_are_interesting(self):
+        """PowerView's rights match includes anything named Delete."""
+        for mask in (ACCESS_MASK.Delete.value, ACCESS_MASK.DeleteTree.value):
+            found, _ = sweep([plain_ace(HELPDESK, mask)])
+            self.assertEqual(len(found), 1, hex(mask))
+
+    def test_denied_extended_right_is_not_a_finding(self):
+        denied = object_ace(HELPDESK, RESET_PASSWORD_GUID)
+        denied['AceType'] = ldaptypes.ACCESS_DENIED_OBJECT_ACE.ACE_TYPE
+        denied['TypeName'] = "ACCESS_DENIED_OBJECT_ACE"
+
+        found, _ = sweep([denied])
+        self.assertEqual(found, [])
+
+        found, _ = sweep([object_ace(HELPDESK, RESET_PASSWORD_GUID)])
+        self.assertEqual(len(found), 1)
+
     def test_without_the_flag_the_enum_is_unfiltered(self):
         """Get-DomainObjectAcl must keep behaving exactly as before."""
         powerview = FakePowerView()
@@ -233,6 +250,16 @@ class RightsFilterTests(unittest.TestCase):
         found, _ = sweep(aces, rights_filter='All')
         self.assertEqual(len(found), 1)
         self.assertIn("GenericAll", found[0]['ActiveDirectoryRights'])
+
+    def test_all_matches_full_control_as_ad_stores_it(self):
+        """A live DACL holds 0xF01FF, not the GENERIC_ALL bit."""
+        aces = [
+            plain_ace(HELPDESK, 0xF01FF),
+            plain_ace(HELPDESK, 0xF01FF & ~ACCESS_MASK.WriteDACL.value),
+        ]
+        found, _ = sweep(aces, rights_filter='All')
+        self.assertEqual(len(found), 1)
+        self.assertIn("FullControl", found[0]['ActiveDirectoryRights'])
 
     def test_rights_filter_is_case_insensitive(self):
         aces = [plain_ace(HELPDESK, ACCESS_MASK.GenericAll.value)]

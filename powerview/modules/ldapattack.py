@@ -1171,19 +1171,31 @@ class ALLOWED_OBJECT_ACE_MASK_FLAGS(Enum):
 	Self = ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_SELF
 
 # Rights that let a trustee change an object rather than just read it. The bits
-# are shared between plain and object ACEs (WriteProperties == ADS_RIGHT_DS_WRITE_PROP,
-# AllExtendedRights == ADS_RIGHT_DS_CONTROL_ACCESS), so one mask covers both.
-INTERESTING_ACCESS_MASK = (
+# are shared between plain and object ACEs (WriteProperties == ADS_RIGHT_DS_WRITE_PROP),
+# so one mask covers both. This is PowerView's 'GenericAll|Write|Create|Delete'
+# match expressed as bits, plus Self (validated writes such as adding yourself
+# to a group), which PowerView does not report.
+MODIFY_ACCESS_MASK = (
 	ACCESS_MASK.GenericAll.value
 	| ACCESS_MASK.GenericWrite.value
 	| ACCESS_MASK.WriteOwner.value
 	| ACCESS_MASK.WriteDACL.value
 	| ACCESS_MASK.WriteProperties.value
-	| ACCESS_MASK.AllExtendedRights.value
 	| ACCESS_MASK.Self.value
+	| ACCESS_MASK.Delete.value
+	| ACCESS_MASK.DeleteTree.value
 	| ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_CREATE_CHILD
 	| ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_DELETE_CHILD
 )
+
+# Extended rights are only a finding when they are granted. PowerView applies
+# the same rule: a deny ACE carrying nothing but an extended right is skipped.
+EXTENDED_RIGHT_ACCESS_MASK = ACCESS_MASK.AllExtendedRights.value
+
+# AD maps GENERIC_ALL to the specific rights when it stores a security
+# descriptor, so full control on a live object is this mask and the generic bit
+# itself only survives on inherit-only ACEs.
+FULL_CONTROL_ACCESS_MASK = SIMPLE_PERMISSIONS.FullControl.value
 
 # Extended right / property GUIDs behind -RightsFilter.
 RESET_PASSWORD_GUID = "00299570-246d-11d0-a768-00aa006e0529"
@@ -1329,23 +1341,31 @@ class ACLEnum:
 		if ace['TypeName'] in ["ACCESS_ALLOWED_OBJECT_ACE", "ACCESS_DENIED_OBJECT_ACE"] and ace['Ace']['ObjectTypeLen'] != 0:
 			object_type = bin_to_string(ace['Ace']['ObjectType']).lower()
 
+		is_allow = ace['TypeName'] in ["ACCESS_ALLOWED_ACE", "ACCESS_ALLOWED_OBJECT_ACE"]
+
 		if self.__rights_filter:
-			return self.matches_rights_filter(mask, object_type)
+			return self.matches_rights_filter(mask, object_type, is_allow)
 
-		return bool(mask & INTERESTING_ACCESS_MASK)
+		return self.grants_modification(mask, is_allow)
 
-	def matches_rights_filter(self, mask, object_type):
+	@staticmethod
+	def grants_modification(mask, is_allow):
+		if mask & MODIFY_ACCESS_MASK:
+			return True
+		return bool(mask & EXTENDED_RIGHT_ACCESS_MASK) and is_allow
+
+	def matches_rights_filter(self, mask, object_type, is_allow):
 		rights_filter = str(self.__rights_filter).casefold()
 
 		if rights_filter == 'all':
-			return bool(mask & ACCESS_MASK.GenericAll.value)
+			return (mask & FULL_CONTROL_ACCESS_MASK) == FULL_CONTROL_ACCESS_MASK or bool(mask & ACCESS_MASK.GenericAll.value)
 		if rights_filter == 'resetpassword':
 			return object_type == RESET_PASSWORD_GUID
 		if rights_filter == 'writemembers':
 			return object_type == WRITE_MEMBERS_GUID
 
 		LOG.debug("[ACLEnum] Unknown rights filter (%s), falling back to any modification right" % rights_filter)
-		return bool(mask & INTERESTING_ACCESS_MASK)
+		return self.grants_modification(mask, is_allow)
 
 	def parseACE(self, ace):
 		sid = ace["Ace"]["Sid"].formatCanonical()
