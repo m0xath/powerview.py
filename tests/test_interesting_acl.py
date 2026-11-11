@@ -218,6 +218,43 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(len(found), 1)
 
 
+class ObjectAceDisplayTests(unittest.TestCase):
+    """An object ACE must show every right it grants, not just the DS ones."""
+
+    GROUP_CLASS = "bf967a9c-0de6-11d0-a285-00aa003049e2"
+
+    def scoped_ace(self, mask):
+        """Object ACE with no object type, limited to one inherited class."""
+        ace = object_ace(HELPDESK, self.GROUP_CLASS, mask=mask)
+        ace['Ace']['ObjectType'] = b''
+        ace['Ace']['InheritedObjectType'] = string_to_bin(self.GROUP_CLASS)
+        ace['Ace']['Flags'] = ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_INHERITED_OBJECT_TYPE_PRESENT
+        return ace
+
+    def test_standard_rights_are_named(self):
+        found, _ = sweep([self.scoped_ace(ACCESS_MASK.Delete.value | ACCESS_MASK.WriteDACL.value)])
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]['AccessMask'], "WriteDACL, Delete")
+
+    def test_ds_rights_and_standard_rights_are_both_named(self):
+        mask = ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_WRITE_PROP | ACCESS_MASK.WriteOwner.value
+        found, _ = sweep([self.scoped_ace(mask)])
+        self.assertEqual(found[0]['AccessMask'], "WriteProperty, WriteOwner")
+
+    def test_ds_only_ace_is_printed_as_before(self):
+        mask = ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_CREATE_CHILD | ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_DELETE_CHILD
+        found, _ = sweep([self.scoped_ace(mask)])
+        self.assertEqual(found[0]['AccessMask'], "CreateChild, DeleteChild")
+
+    def test_no_reported_ace_has_an_empty_rights_line(self):
+        for mask in (ACCESS_MASK.Delete.value, ACCESS_MASK.DeleteTree.value,
+                     ACCESS_MASK.WriteDACL.value, ACCESS_MASK.WriteOwner.value,
+                     ACCESS_MASK.GenericAll.value, ACCESS_MASK.GenericWrite.value):
+            found, _ = sweep([self.scoped_ace(mask)])
+            self.assertEqual(len(found), 1, hex(mask))
+            self.assertTrue(found[0]['AccessMask'], hex(mask))
+
+
 class RightsFilterTests(unittest.TestCase):
     def test_resetpassword_keeps_only_that_extended_right(self):
         aces = [

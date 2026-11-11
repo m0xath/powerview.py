@@ -1400,6 +1400,15 @@ class ACLEnum:
 			
 			elif ace['TypeName'] in ["ACCESS_ALLOWED_OBJECT_ACE", "ACCESS_DENIED_OBJECT_ACE"]:
 				_access_mask_flags = [FLAG.name for FLAG in ALLOWED_OBJECT_ACE_MASK_FLAGS if ace['Ace']['Mask'].hasPriv(FLAG.value)]
+				# An object ACE can also carry rights outside the directory
+				# service specific ones named above, such as Delete, WriteDACL
+				# or WriteOwner. Name those too, otherwise the ACE is printed
+				# with part of what it grants, or nothing at all, missing.
+				_named_bits = 0
+				for FLAG in ALLOWED_OBJECT_ACE_MASK_FLAGS:
+					_named_bits |= FLAG.value
+				_remaining_bits = ace['Ace']['Mask']['Mask'] & ~_named_bits
+				_access_mask_flags += [PERM.name for PERM in ACCESS_MASK if _remaining_bits & PERM.value]
 				parsed_ace['AccessMask'] = ", ".join(_access_mask_flags)
 				
 				_object_flags = [FLAG.name for FLAG in OBJECT_ACE_FLAGS if ace['Ace'].hasFlag(FLAG.value)]
