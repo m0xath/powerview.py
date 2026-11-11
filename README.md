@@ -277,6 +277,7 @@ Find-LocalAdminAccess          Get-EventLog                   Invoke-PrinterBug 
 |Get-DomainDNSZone||Query for available DNS zones in the domain|
 |Get-DomainObject|Get-ADObject|Query for all or specified domain objects in AD|
 |Get-DomainObjectAcl|Get-ObjectAcl|Query ACLs for specified AD object|
+|Find-InterestingDomainAcl|Invoke-ACLScanner|Sweep the domain for ACEs that grant modification rights to non-default principals|
 |Get-DomainSCCM|Get-SCCM|Query for SCCM|
 |Get-DomainRBCD|Get-RBCD|Finds accounts that are configured for resource-based constrained delegation|
 |Get-DomainObjectOwner|Get-ObjectOwner|Query owner of the AD object|

@@ -1170,8 +1170,76 @@ class ALLOWED_OBJECT_ACE_MASK_FLAGS(Enum):
 	WriteProperty = ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_WRITE_PROP
 	Self = ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_SELF
 
+# Rights that let a trustee change an object rather than just read it. The bits
+# are shared between plain and object ACEs (WriteProperties == ADS_RIGHT_DS_WRITE_PROP,
+# AllExtendedRights == ADS_RIGHT_DS_CONTROL_ACCESS), so one mask covers both.
+INTERESTING_ACCESS_MASK = (
+	ACCESS_MASK.GenericAll.value
+	| ACCESS_MASK.GenericWrite.value
+	| ACCESS_MASK.WriteOwner.value
+	| ACCESS_MASK.WriteDACL.value
+	| ACCESS_MASK.WriteProperties.value
+	| ACCESS_MASK.AllExtendedRights.value
+	| ACCESS_MASK.Self.value
+	| ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_CREATE_CHILD
+	| ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_DELETE_CHILD
+)
+
+# Extended right / property GUIDs behind -RightsFilter.
+RESET_PASSWORD_GUID = "00299570-246d-11d0-a768-00aa006e0529"
+WRITE_MEMBERS_GUID = "bf9679c0-0de6-11d0-a285-00aa003049e2"
+
+# A domain trustee with a RID of 1000 or above means the ACE was granted by
+# someone rather than shipped with the domain. PowerView applies the RID cutoff
+# to any S-1-5 SID, which also catches service accounts such as
+# S-1-5-80-<hash> (NT SERVICE\...) whose last sub-authority happens to be a
+# large number. Anchoring on the S-1-5-21 domain authority keeps those out.
+NON_DEFAULT_RID_REGEX = re.compile(r"^S-1-5-21-[\d-]+-[1-9]\d{3,}$")
+
+# Principals below that cutoff that are still worth reporting, because a grant
+# to one of them is effectively a grant to every authenticated principal.
+BROAD_TRUSTEE_SIDS = frozenset({
+	"S-1-1-0",       # Everyone
+	"S-1-5-7",       # Anonymous Logon
+	"S-1-5-11",      # Authenticated Users
+	"S-1-5-32-545",  # BUILTIN\Users
+	"S-1-5-32-546",  # BUILTIN\Guests
+})
+
+# Domain-relative RIDs with the same problem: every account lands in one.
+BROAD_TRUSTEE_RIDS = frozenset({
+	513,  # Domain Users
+	514,  # Domain Guests
+	515,  # Domain Computers
+})
+
+def is_nondefault_trustee(sid, include_broad=False):
+	"""Decide whether an ACE trustee is worth reporting.
+
+	`include_broad` widens the test to principals such as Authenticated Users,
+	which sit below the RID 1000 cutoff and are therefore invisible to
+	PowerView, yet are usually the more serious finding when they show up on a
+	writable ACE.
+	"""
+	if not sid:
+		return False
+
+	if NON_DEFAULT_RID_REGEX.match(sid):
+		return True
+
+	if not include_broad:
+		return False
+
+	if sid in BROAD_TRUSTEE_SIDS:
+		return True
+
+	try:
+		return int(sid.rsplit("-", 1)[1]) in BROAD_TRUSTEE_RIDS
+	except (IndexError, ValueError):
+		return False
+
 class ACLEnum:
-	def __init__(self, powerview, entries, root_dn, resolveguids=None, targetidentity=None, principalidentity=None, guids_map_dict=None):
+	def __init__(self, powerview, entries, root_dn, resolveguids=None, targetidentity=None, principalidentity=None, guids_map_dict=None, interesting_only=False, rights_filter=None, include_broad_trustees=False):
 		self.entries = entries
 		self.powerview = powerview
 		self.root_dn = root_dn
@@ -1181,7 +1249,10 @@ class ACLEnum:
 		self.__resolveguids = resolveguids
 		self.__targetidentity = targetidentity
 		self.__principalidentity = principalidentity
-		
+		self.__interesting_only = interesting_only
+		self.__rights_filter = rights_filter
+		self.__include_broad_trustees = include_broad_trustees
+
 		# Combine the GUID maps
 		self.__guids_map_dict = {}
 		# Add guids_map_dict if provided
@@ -1239,6 +1310,43 @@ class ACLEnum:
 				parsed_dacl.append(parsed_ace)
 		return parsed_dacl
 
+	def is_interesting_ace(self, ace, sid):
+		"""Keep only ACEs that hand modification rights to a non-default trustee.
+
+		Deliberately runs before the trustee SID is resolved to a name, so the
+		overwhelmingly common case of a boring inherited ACE costs no LDAP
+		lookups at all.
+		"""
+		if not is_nondefault_trustee(sid, include_broad=self.__include_broad_trustees):
+			return False
+
+		if ace['TypeName'] not in ["ACCESS_ALLOWED_ACE", "ACCESS_ALLOWED_OBJECT_ACE", "ACCESS_DENIED_ACE", "ACCESS_DENIED_OBJECT_ACE"]:
+			return False
+
+		mask = ace['Ace']['Mask']['Mask']
+
+		object_type = None
+		if ace['TypeName'] in ["ACCESS_ALLOWED_OBJECT_ACE", "ACCESS_DENIED_OBJECT_ACE"] and ace['Ace']['ObjectTypeLen'] != 0:
+			object_type = bin_to_string(ace['Ace']['ObjectType']).lower()
+
+		if self.__rights_filter:
+			return self.matches_rights_filter(mask, object_type)
+
+		return bool(mask & INTERESTING_ACCESS_MASK)
+
+	def matches_rights_filter(self, mask, object_type):
+		rights_filter = str(self.__rights_filter).casefold()
+
+		if rights_filter == 'all':
+			return bool(mask & ACCESS_MASK.GenericAll.value)
+		if rights_filter == 'resetpassword':
+			return object_type == RESET_PASSWORD_GUID
+		if rights_filter == 'writemembers':
+			return object_type == WRITE_MEMBERS_GUID
+
+		LOG.debug("[ACLEnum] Unknown rights filter (%s), falling back to any modification right" % rights_filter)
+		return bool(mask & INTERESTING_ACCESS_MASK)
+
 	def parseACE(self, ace):
 		sid = ace["Ace"]["Sid"].formatCanonical()
 		if self.__principalidentity:
@@ -1248,7 +1356,10 @@ class ACLEnum:
 			else:
 				if self.__principalidentity != sid:
 					return
-		
+
+		if self.__interesting_only and not self.is_interesting_ace(ace, sid):
+			return
+
 		if ace['TypeName'] in ["ACCESS_ALLOWED_ACE", "ACCESS_ALLOWED_OBJECT_ACE", "ACCESS_DENIED_ACE", "ACCESS_DENIED_OBJECT_ACE"]:
 			parsed_ace = {}
 			parsed_ace['ObjectDN'] = self.objectdn

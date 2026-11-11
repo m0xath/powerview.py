@@ -193,6 +193,8 @@ def main():
                                 entries = pv.get_domainobjectowner(args=pv_args)
                             elif pv_args.module.casefold() == 'get-domainobjectacl' or pv_args.module.casefold() == 'get-objectacl':
                                 entries = pv.get_domainobjectacl(args=pv_args)
+                            elif pv_args.module.casefold() == 'find-interestingdomainacl' or pv_args.module.casefold() == 'invoke-aclscanner':
+                                entries = pv.find_interestingdomainacl(args=pv_args)
                             elif pv_args.module.casefold() == 'get-domainuser':
                                 entries = pv.get_domainuser(args=pv_args)
                             elif pv_args.module.casefold() == 'get-localuser':

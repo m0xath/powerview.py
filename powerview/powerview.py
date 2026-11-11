@@ -1303,7 +1303,8 @@ class PowerView:
 
 		return writable_entries
 
-	def get_domainobjectacl(self, identity=None, security_identifier=None, ldapfilter=None, resolveguids=False, guids_map_dict=None, searchbase=None, args=None, search_scope=ldap3.SUBTREE, no_cache=False, no_vuln_check=False, raw=False):
+	def get_domainobjectacl(self, identity=None, security_identifier=None, ldapfilter=None, resolveguids=False, guids_map_dict=None, searchbase=None, args=None, search_scope=ldap3.SUBTREE, no_cache=False, no_vuln_check=False, raw=False, interesting_only=False, rights_filter=None, include_broad_trustees=False):
+		depth = 0
 		if args:
 			security_identifier = args.security_identifier if hasattr(args, 'security_identifier') else security_identifier
 			depth = args.depth if hasattr(args, 'depth') else 0
@@ -1472,8 +1473,51 @@ class PowerView:
 			logging.error('[Get-DomainObjectAcl] Identity not found in domain')
 			return None
 
-		enum = ACLEnum(self, entries, searchbase, resolveguids=resolveguids, targetidentity=identity, principalidentity=(principalidentity_map if principalidentity_map else security_identifier), guids_map_dict=guids_dict)
+		enum = ACLEnum(
+			self,
+			entries,
+			searchbase,
+			resolveguids=resolveguids,
+			targetidentity=identity,
+			principalidentity=(principalidentity_map if principalidentity_map else security_identifier),
+			guids_map_dict=guids_dict,
+			interesting_only=interesting_only,
+			rights_filter=rights_filter,
+			include_broad_trustees=include_broad_trustees
+		)
 		return enum.read_dacl()
+
+	def find_interestingdomainacl(self, ldapfilter=None, searchbase=None, rights_filter=None, include_broad_trustees=False, resolveguids=True, args=None, no_cache=False, no_vuln_check=False, raw=False):
+		"""Sweep the domain for ACEs that grant modification rights to non-default principals.
+
+		The PowerView equivalent of Find-InterestingDomainAcl / Invoke-ACLScanner.
+		Use Get-DomainObjectAcl when you already know which object you care
+		about; this one is the discovery pass over everything.
+		"""
+		if args:
+			ldapfilter = args.ldapfilter if hasattr(args, 'ldapfilter') and args.ldapfilter else ldapfilter
+			searchbase = args.searchbase if hasattr(args, 'searchbase') and args.searchbase else searchbase
+			rights_filter = args.rights_filter if hasattr(args, 'rights_filter') and args.rights_filter else rights_filter
+			include_broad_trustees = args.include_broad_trustees if hasattr(args, 'include_broad_trustees') else include_broad_trustees
+			resolveguids = args.resolveguids if hasattr(args, 'resolveguids') and args.resolveguids else resolveguids
+			no_cache = args.no_cache if hasattr(args, 'no_cache') else no_cache
+			no_vuln_check = args.no_vuln_check if hasattr(args, 'no_vuln_check') else no_vuln_check
+			raw = args.raw if hasattr(args, 'raw') else raw
+
+		if rights_filter:
+			logging.debug(f"[Find-InterestingDomainAcl] Restricting to rights filter {rights_filter}")
+
+		return self.get_domainobjectacl(
+			ldapfilter=ldapfilter,
+			searchbase=searchbase,
+			resolveguids=resolveguids,
+			interesting_only=True,
+			rights_filter=rights_filter,
+			include_broad_trustees=include_broad_trustees,
+			no_cache=no_cache,
+			no_vuln_check=no_vuln_check,
+			raw=raw
+		)
 
 	def get_domaincomputer(self, args=None, properties=[], identity=None, searchbase=None, resolvesids=False, ldapfilter=None, include_ip=False, search_scope=ldap3.SUBTREE, no_cache=False, no_vuln_check=False, raw=False):
 		def_prop = [

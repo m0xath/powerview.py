@@ -10,6 +10,17 @@ from powerview._version import BANNER,__version__
 
 _plugin_registry = None
 
+RIGHTS_FILTERS = ('All', 'ResetPassword', 'WriteMembers')
+
+def parse_rights_filter(value):
+	"""Accept -RightsFilter in any casing and hand back the canonical spelling."""
+	for candidate in RIGHTS_FILTERS:
+		if str(value).casefold() == candidate.casefold():
+			return candidate
+	raise argparse.ArgumentTypeError(
+		"invalid choice: %r (choose from %s)" % (value, ", ".join(repr(c) for c in RIGHTS_FILTERS))
+	)
+
 def set_plugin_registry(registry):
     """Set the plugin registry for argument parsing."""
     global _plugin_registry
@@ -259,6 +270,25 @@ def powerview_arg_parse(cmd):
 	get_domaingroup_parser.add_argument('-NoCache', action='store_true', default=False, dest='no_cache')
 	get_domaingroup_parser.add_argument('-NoVulnCheck', action='store_true', default=False, dest='no_vuln_check')
 	get_domaingroup_parser.add_argument('-Raw', action='store_true', default=False, dest='raw')
+
+	# interestingdomainacl
+	find_interestingdomainacl_parser = subparsers.add_parser('Find-InterestingDomainAcl', aliases=['Invoke-ACLScanner'], exit_on_error=False)
+	find_interestingdomainacl_parser.add_argument('-LDAPFilter', action='store', dest='ldapfilter', help='Restrict the sweep to objects matching this filter')
+	find_interestingdomainacl_parser.add_argument('-SearchBase', action='store', dest='searchbase', type=lambda value: escape_filter_chars_except_asterisk(value), help='Limit the sweep to a subtree, e.g. an OU')
+	find_interestingdomainacl_parser.add_argument('-Server', action='store', dest='server')
+	find_interestingdomainacl_parser.add_argument('-RightsFilter', action='store', dest='rights_filter', type=parse_rights_filter, metavar='{All,ResetPassword,WriteMembers}', help="Only report a specific right. 'All' means GenericAll; the others match the reset-password and member-write GUIDs")
+	find_interestingdomainacl_parser.add_argument('-IncludeBroadTrustees', action='store_true', default=False, dest='include_broad_trustees', help='Also report grants to Authenticated Users, Everyone, Domain Users and similar. PowerView misses these because their RID is below 1000')
+	find_interestingdomainacl_parser.add_argument('-ResolveGUIDs', action='store_true', default=True, dest='resolveguids', help='Resolve extended-right GUIDs to display names. Already the default here, accepted for PowerView parity')
+	find_interestingdomainacl_parser.add_argument('-Select', action='store', dest='select', type=Helper.parse_select)
+	find_interestingdomainacl_parser.add_argument('-Where', action='store', dest='where')
+	find_interestingdomainacl_parser.add_argument('-TableView', nargs='?', const='default', default='', dest='tableview', help="Format the output as a table. Options: 'md', 'csv'. Defaults to standard table if no value is provided.", type=Helper.parse_tableview)
+	find_interestingdomainacl_parser.add_argument('-Json', action='store_true', default=False, dest='json', help='Output results as JSON')
+	find_interestingdomainacl_parser.add_argument('-OutFile', action='store', dest='outfile')
+	find_interestingdomainacl_parser.add_argument('-Count', action='store_true', dest='count')
+	find_interestingdomainacl_parser.add_argument('-NoWrap', action='store_true', default=False, dest='nowrap')
+	find_interestingdomainacl_parser.add_argument('-NoCache', action='store_true', default=False, dest='no_cache')
+	find_interestingdomainacl_parser.add_argument('-NoVulnCheck', action='store_true', default=False, dest='no_vuln_check')
+	find_interestingdomainacl_parser.add_argument('-Raw', action='store_true', default=False, dest='raw')
 
 	# foreignuser
 	get_domainforeignuser_parser = subparsers.add_parser('Get-DomainForeignUser', aliases=['Find-ForeignUser'], exit_on_error=False)
