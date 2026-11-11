@@ -1303,7 +1303,7 @@ class PowerView:
 
 		return writable_entries
 
-	def get_domainobjectacl(self, identity=None, security_identifier=None, ldapfilter=None, resolveguids=False, guids_map_dict=None, searchbase=None, args=None, search_scope=ldap3.SUBTREE, no_cache=False, no_vuln_check=False, raw=False, interesting_only=False, rights_filter=None, include_broad_trustees=False):
+	def get_domainobjectacl(self, identity=None, security_identifier=None, ldapfilter=None, resolveguids=False, guids_map_dict=None, searchbase=None, args=None, search_scope=ldap3.SUBTREE, no_cache=False, no_vuln_check=False, raw=False, interesting_only=False, rights_filter=None, include_broad_trustees=False, include_deleted=False):
 		depth = 0
 		if args:
 			security_identifier = args.security_identifier if hasattr(args, 'security_identifier') else security_identifier
@@ -1464,7 +1464,12 @@ class PowerView:
 			searchbase=searchbase, 
 			ldap_filter=ldapfilter,
 			sd_flag=0x05,
-			no_cache=no_cache, 
+			include_deleted=include_deleted,
+			# The result cache is keyed on base, filter, scope and attributes
+			# but not on LDAP controls, so a search that asks for deleted
+			# objects must neither read an earlier answer nor leave its own
+			# behind for a later search that did not ask for them.
+			no_cache=no_cache or include_deleted,
 			no_vuln_check=no_vuln_check,
 			raw=raw
 		)
@@ -1487,7 +1492,7 @@ class PowerView:
 		)
 		return enum.read_dacl()
 
-	def find_interestingdomainacl(self, ldapfilter=None, searchbase=None, rights_filter=None, include_broad_trustees=False, resolveguids=True, args=None, no_cache=False, no_vuln_check=False, raw=False):
+	def find_interestingdomainacl(self, ldapfilter=None, searchbase=None, rights_filter=None, include_broad_trustees=False, resolveguids=True, tombstone=False, args=None, no_cache=False, no_vuln_check=False, raw=False):
 		"""Sweep the domain for ACEs that grant modification rights to non-default principals.
 
 		The PowerView equivalent of Find-InterestingDomainAcl / Invoke-ACLScanner.
@@ -1500,6 +1505,7 @@ class PowerView:
 			rights_filter = args.rights_filter if hasattr(args, 'rights_filter') and args.rights_filter else rights_filter
 			include_broad_trustees = args.include_broad_trustees if hasattr(args, 'include_broad_trustees') else include_broad_trustees
 			resolveguids = args.resolveguids if hasattr(args, 'resolveguids') and args.resolveguids else resolveguids
+			tombstone = args.tombstone if hasattr(args, 'tombstone') and args.tombstone else tombstone
 			no_cache = args.no_cache if hasattr(args, 'no_cache') else no_cache
 			no_vuln_check = args.no_vuln_check if hasattr(args, 'no_vuln_check') else no_vuln_check
 			raw = args.raw if hasattr(args, 'raw') else raw
@@ -1514,6 +1520,7 @@ class PowerView:
 			interesting_only=True,
 			rights_filter=rights_filter,
 			include_broad_trustees=include_broad_trustees,
+			include_deleted=tombstone,
 			no_cache=no_cache,
 			no_vuln_check=no_vuln_check,
 			raw=raw

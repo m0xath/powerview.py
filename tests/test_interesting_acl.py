@@ -363,6 +363,30 @@ class EndToEndTests(unittest.TestCase):
         found = [ace for result in results for ace in result['attributes']]
         self.assertEqual(len(found), 1)
 
+    def test_deleted_objects_are_left_out_by_default(self):
+        pv = self.build_powerview([plain_ace(HELPDESK, ACCESS_MASK.GenericAll.value)])
+        pv.find_interestingdomainacl()
+        self.assertFalse(self.requested['include_deleted'])
+        self.assertFalse(self.requested['no_cache'])
+
+    def test_tombstone_asks_for_deleted_objects(self):
+        pv = self.build_powerview([plain_ace(HELPDESK, ACCESS_MASK.GenericAll.value)])
+        pv.find_interestingdomainacl(tombstone=True)
+        self.assertTrue(self.requested['include_deleted'])
+
+    def test_tombstone_search_never_touches_the_cache(self):
+        """The cache key ignores LDAP controls, so a cached answer would be wrong."""
+        pv = self.build_powerview([plain_ace(HELPDESK, ACCESS_MASK.GenericAll.value)])
+        pv.find_interestingdomainacl(tombstone=True, no_cache=False)
+        self.assertTrue(self.requested['no_cache'])
+
+    def test_tombstone_from_the_args_namespace(self):
+        import argparse as _argparse
+
+        pv = self.build_powerview([plain_ace(HELPDESK, ACCESS_MASK.GenericAll.value)])
+        pv.find_interestingdomainacl(args=_argparse.Namespace(tombstone=True))
+        self.assertTrue(self.requested['include_deleted'])
+
     def test_get_domainobjectacl_still_works_without_args(self):
         """Regression guard for the uninitialised depth variable."""
         pv = self.build_powerview([plain_ace(HELPDESK, ACCESS_MASK.GenericAll.value)])
@@ -392,6 +416,11 @@ class ParserTests(unittest.TestCase):
         import io
         with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
             self.assertIsNone(self.parse(['Find-InterestingDomainAcl', '-RightsFilter', 'nope']))
+
+    def test_tombstone_flag_defaults_off(self):
+        for command in ('Find-InterestingDomainAcl', 'Invoke-ACLScanner'):
+            self.assertFalse(self.parse([command]).tombstone, command)
+            self.assertTrue(self.parse([command, '-Tombstone']).tombstone, command)
 
     def test_broad_trustee_flag_defaults_off(self):
         parsed = self.parse(['Find-InterestingDomainAcl'])

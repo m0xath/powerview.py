@@ -278,6 +278,7 @@ def powerview_arg_parse(cmd):
 	find_interestingdomainacl_parser.add_argument('-Server', action='store', dest='server')
 	find_interestingdomainacl_parser.add_argument('-RightsFilter', action='store', dest='rights_filter', type=parse_rights_filter, metavar='{All,ResetPassword,WriteMembers}', help="Only report a specific right. 'All' means full control; the others match the reset-password and member-write GUIDs")
 	find_interestingdomainacl_parser.add_argument('-IncludeBroadTrustees', action='store_true', default=False, dest='include_broad_trustees', help='Also report grants to Authenticated Users, Everyone, Domain Users and similar. PowerView misses these because their RID is below 1000')
+	find_interestingdomainacl_parser.add_argument('-Tombstone', action='store_true', default=False, dest='tombstone', help='Also sweep deleted objects. Reading them usually needs a privileged account, and the result cache is bypassed for this search')
 	find_interestingdomainacl_parser.add_argument('-ResolveGUIDs', action='store_true', default=True, dest='resolveguids', help='Resolve extended-right GUIDs to display names. Already the default here, accepted for PowerView parity')
 	find_interestingdomainacl_parser.add_argument('-Select', action='store', dest='select', type=Helper.parse_select)
 	find_interestingdomainacl_parser.add_argument('-Where', action='store', dest='where')
