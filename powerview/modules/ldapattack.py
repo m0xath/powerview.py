@@ -1409,6 +1409,12 @@ class ACLEnum:
 					_named_bits |= FLAG.value
 				_remaining_bits = ace['Ace']['Mask']['Mask'] & ~_named_bits
 				_access_mask_flags += [PERM.name for PERM in ACCESS_MASK if _remaining_bits & PERM.value]
+				# Give full control the same single label a plain ACE gets, so
+				# one search term finds it whichever ACE type carries it.
+				_mask = ace['Ace']['Mask']['Mask']
+				if (_mask & FULL_CONTROL_ACCESS_MASK) == FULL_CONTROL_ACCESS_MASK:
+					_beyond_full = _mask & ~FULL_CONTROL_ACCESS_MASK
+					_access_mask_flags = [SIMPLE_PERMISSIONS.FullControl.name] + [PERM.name for PERM in ACCESS_MASK if _beyond_full & PERM.value]
 				parsed_ace['AccessMask'] = ", ".join(_access_mask_flags)
 				
 				_object_flags = [FLAG.name for FLAG in OBJECT_ACE_FLAGS if ace['Ace'].hasFlag(FLAG.value)]

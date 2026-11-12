@@ -246,6 +246,17 @@ class ObjectAceDisplayTests(unittest.TestCase):
         found, _ = sweep([self.scoped_ace(mask)])
         self.assertEqual(found[0]['AccessMask'], "CreateChild, DeleteChild")
 
+    def test_full_control_gets_the_same_label_as_on_a_plain_ace(self):
+        plain, _ = sweep([plain_ace(HELPDESK, 0xF01FF)])
+        scoped, _ = sweep([self.scoped_ace(0xF01FF)])
+        self.assertEqual(plain[0]['AccessMask'], "FullControl")
+        self.assertEqual(scoped[0]['AccessMask'], "FullControl")
+
+    def test_one_right_short_of_full_control_is_spelled_out(self):
+        found, _ = sweep([self.scoped_ace(0xF01FF & ~ACCESS_MASK.WriteDACL.value)])
+        self.assertNotIn("FullControl", found[0]['AccessMask'])
+        self.assertIn("WriteOwner", found[0]['AccessMask'])
+
     def test_no_reported_ace_has_an_empty_rights_line(self):
         for mask in (ACCESS_MASK.Delete.value, ACCESS_MASK.DeleteTree.value,
                      ACCESS_MASK.WriteDACL.value, ACCESS_MASK.WriteOwner.value,
